@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:int-jms="http://www.springframework.org/schema/integration/jms"
+    xmlns:int-amqp="http://www.springframework.org/schema/integration/amqp"
+	xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:integration="http://www.springframework.org/schema/integration"
+	xmlns:tx="http://www.springframework.org/schema/tx" 
+	xmlns:jpa="http://www.springframework.org/schema/data/jpa"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:batch="http://www.springframework.org/schema/batch"
+	xmlns:batch-int="http://www.springframework.org/schema/batch-integration"
+	xsi:schemaLocation=
+	   "http://www.springframework.org/schema/beans 
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/data/jpa 
+		http://www.springframework.org/schema/data/jpa/spring-jpa.xsd
+		http://www.springframework.org/schema/tx 
+		http://www.springframework.org/schema/tx/spring-tx.xsd
+		http://www.springframework.org/schema/context 
+	    http://www.springframework.org/schema/context/spring-context.xsd
+	    http://www.springframework.org/schema/batch 
+	    http://www.springframework.org/schema/batch/spring-batch.xsd
+	    http://www.springframework.org/schema/integration/jms
+		http://www.springframework.org/schema/integration/jms/spring-integration-jms-4.0.xsd
+		http://www.springframework.org/schema/integration
+		http://www.springframework.org/schema/integration/spring-integration-4.0.xsd
+		http://www.springframework.org/schema/batch-integration
+		http://www.springframework.org/schema/batch-integration/spring-batch-integration-4.0.xsd
+		http://www.springframework.org/schema/integration/amqp 
+		http://www.springframework.org/schema/integration/amqp/spring-integration-amqp-4.0.xsd
+		">
+		
+	<bean id="taskExecutor" class="org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor">
+          <!-- 线程池维护线程的最少数量 -->
+          <property name="corePoolSize" value="20" />
+          <!-- 允许的空闲时间 -->
+          <property name="keepAliveSeconds" value="200" />
+          <!-- 线程池维护线程的最大数量 -->
+          <property name="maxPoolSize" value="20" />
+          <!-- 缓存队列 -->
+         <property name="queueCapacity" value="10000" />
+         <!-- 对拒绝task的处理策略 -->
+         <property name="rejectedExecutionHandler">
+             <bean class="java.util.concurrent.ThreadPoolExecutor$CallerRunsPolicy" />
+         </property>
+    </bean>
+    
+	<!-- spring batch 配置jobRepository -->
+	<batch:job-repository id="jobRepository"
+		data-source="dataSource" transaction-manager="transactionManagerBatch"
+		isolation-level-for-create="REPEATABLE_READ" table-prefix="BATCH_"
+		max-varchar-length="1000" />
+	<!-- spring的事务管理器 -->
+	
+	<bean id="transactionManagerBatch"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		<property name="dataSource" ref="dataSource1" />
+	</bean>
+
+	<!-- batch luncher -->
+	<bean id="jobLauncher"
+		class="org.springframework.batch.core.launch.support.SimpleJobLauncher">
+		<property name="jobRepository" ref="jobRepository" />
+	</bean>
+	
+	
+	<batch:job id="helloWorldJob" restartable="true" >
+        <batch:step id="step_hello" next="step_world">
+            <batch:tasklet ref="hello"/>
+        </batch:step>
+        <batch:step id="step_world">
+            <batch:tasklet ref="world"/>
+        </batch:step>
+    </batch:job>
+    
+    <bean id = "hello" class=" com.zyl.jpa.batch.Hello">
+      <property name="message" value="hello"></property>
+    </bean>
+	<bean id = "world" class=" com.zyl.jpa.batch.World">
+       <property name="message" value="world"></property>
+    </bean>
+    
+    <batch:job id="gomeJob" restartable="true">
+		<batch:step id="masterStep">  
+            <batch:partition step="addDescStep" partitioner="rangePartitioner">  
+                <batch:handler grid-size="16" />  
+            </batch:partition>  
+        </batch:step>  
+	</batch:job>
+
+     <bean id="taskExecutor1" class="org.springframework.core.task.SimpleAsyncTaskExecutor" />  
+
+    <batch:step id="addDescStep" >
+			<batch:tasklet>
+				<batch:chunk reader="ccsCarReader" processor="ccsCarProcessor" writer="ccsCarWriter"  commit-interval="5" >
+				  <!-- <batch:skippable-exception-classes>
+				      <batch:include class="java.lang.Exception"/>
+				  </batch:skippable-exception-classes> -->
+				</batch:chunk>
+			</batch:tasklet>
+	</batch:step>
+
+   
+    <bean id = 'rangePartitioner' class="com.zyl.jpa.batch.partition.RangePartitioner"></bean>
+
+    <!-- 使用分页的reader begin -->
+	<bean id="ccsCarReader" class="org.springframework.batch.item.database.JdbcPagingItemReader" scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="queryProvider">
+			<bean
+				class="org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean">
+				<property name="dataSource" ref="dataSource" />
+				<property name="selectClause" value="select ORG, CARD_ID, ACCT_NBR" />
+				<property name="fromClause" value="from ccs_car" />
+				<property name="whereClause" value="where CONTR_NBR like :contr_nbr and DEALER_ID = :dealer_id  and CARD_ID &gt;= :fromId and CARD_ID &lt;= :toId" />
+				<property name="sortKey" value="CARD_ID" />
+			</bean>
+		</property>
+		<property name="parameterValues">
+			<map>
+				<entry key="contr_nbr" value="#{jobParameters['contr_nbr']}" />
+				<entry key="dealer_id" value="#{jobParameters['dealer_id']}" />
+				<entry key="fromId" value="#{stepExecutionContext['fromId']}" />  
+                <entry key="toId" value="#{stepExecutionContext['toId']}" />  
+			</map>
+		</property>
+		<!-- 配置limit的大小 -->
+		<property name="pageSize" value="3" />
+		<property name="rowMapper" ref="ccsCarMapper" />
+	</bean>
+
+	<bean id="ccsCarMapper" class="com.zyl.jpa.batch.mapper.CcsCarMapper" />
+	<bean id="ccsCarProcessor" class="com.zyl.jpa.batch.mapper.CcsCarProcessor" />
+	<bean id="ccsCarWriter" class="com.zyl.jpa.batch.mapper.CcsCarWriter" />
+
+	<bean id="chunkHandler" class="com.zyl.jpa.batch.chunk.ChunkProcessorChunkHandler">
+	</bean>
+	
+	<bean id ="chunkProcessor" class = "com.zyl.jpa.batch.chunk.SimpleChunkProcessor">
+        <property name="itemWriter" ref="ccsCarWriter"/>
+		<property name="itemProcessor" ref="ccsCarProcessor" ></property>
+	</bean>
+	
+</beans>

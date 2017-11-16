@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:tx="http://www.springframework.org/schema/tx" 
+	xmlns:jpa="http://www.springframework.org/schema/data/jpa"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation=
+	   "http://www.springframework.org/schema/beans 
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/data/jpa 
+		http://www.springframework.org/schema/data/jpa/spring-jpa.xsd
+		http://www.springframework.org/schema/tx 
+		http://www.springframework.org/schema/tx/spring-tx.xsd
+		http://www.springframework.org/schema/aop
+		http://www.springframework.org/schema/aop/spring-aop.xsd
+		http://www.springframework.org/schema/context 
+	    http://www.springframework.org/schema/context/spring-context.xsd">
+	
+	
+	<context:annotation-config/>
+	
+	<context:component-scan base-package="com.zyl.jpa" use-default-filters="false">
+	        <context:include-filter type="annotation" expression="org.springframework.stereotype.Service"/>
+	</context:component-scan>
+		
+    <context:property-placeholder location="classpath:jdbc.properties" />
+ 
+   <aop:aspectj-autoproxy proxy-target-class="true" expose-proxy="true"></aop:aspectj-autoproxy>
+   <!-- <aop:scoped-proxy proxy-target-class="true" /> -->
+   <!-- 这里定义JPA相关配置。总体上来说，这里使用以Hibernate为Provider的JPA2.0方案，使用Spring来进行集成，不依赖于容器的JPA实现。 -->
+	<bean id="dataSource1" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+		<property name="driverClassName" value="${jdbcDriver}" />
+		<property name="validationQuery" value="select 1" />
+		<property name="maxActive" value="${jdbcMaxActive}" />
+		<property name="maxIdle" value="10" />
+		<property name="minIdle" value="2" />
+		<property name="minEvictableIdleTimeMillis" value="1800000" />
+		<property name="url" value="${jdbcUrl}" />
+		<property name="username" value="${jdbcUsername}" />
+		<property name="password" value="${jdbcPassword}" />
+	</bean>
+	
+	<bean id="dataSource2" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+		<property name="driverClassName" value="${jdbcDriver}" />
+		<property name="validationQuery" value="select 1" />
+		<property name="maxActive" value="${jdbcMaxActive}" />
+		<property name="maxIdle" value="10" />
+		<property name="minIdle" value="2" />
+		<property name="minEvictableIdleTimeMillis" value="1800000" />
+		<property name="url" value="${jdbcUrlRead}" />
+		<property name="username" value="${jdbcUsername}" />
+		<property name="password" value="${jdbcPassword}" />
+	</bean>
+
+	<bean id="dataSource" class="com.zyl.jpa.ds.DynamicDataSource">
+        <property name="targetDataSources">
+            <map key-type="java.lang.String">
+                <entry key="dataSource1" value-ref="dataSource1" />
+                <entry key="dataSource2" value-ref="dataSource2" />
+            </map>
+        </property>
+        <property name="defaultTargetDataSource" ref="dataSource1" />
+    </bean>
+	
+	 <bean id="entityManagerFactory"  class="org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean"> 
+        <property name="dataSource" ref="dataSource" />  
+        <property name="jpaVendorAdapter" ref="hibernateJpaVendorAdapter"/>
+        <property name="persistenceUnitName" value="default" /> 
+        <property name="packagesToScan">
+			<list>
+				<value>com.zyl.**.domain</value>
+			</list>
+		</property> 
+    </bean> 
+    
+    <bean id ="hibernateJpaVendorAdapter" class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter">
+				<property name="database" value="DEFAULT" />
+				<property name="generateDdl" value="true" />
+				<property name="showSql" value="true" />
+	</bean>
+			
+   <!--  <bean id="entityManagerFactory" class="org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean">
+		<description>
+			定义EntityManagerFactory，用于Spring控制事务。
+			具体的Hibernate配置在persistence.xml中控制，包括JPA
+			Provider和Hibernate的各种参数（不含组件扫描)。
+		</description>
+		<property name="dataSource" ref="dataSource" />
+		<property name="persistenceUnitName" value="default" />
+		<property name="packagesToScan">
+			<list>
+				<value>com.zyl.**.domain</value>
+			</list>
+		</property>
+		<property name="persistenceProvider" ref="hibernatePersistenceProvider" />
+		<property name="jpaVendorAdapter">
+			<bean class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter">
+				<property name="database" value="DEFAULT" />
+				<property name="generateDdl" value="false" />
+				<property name="showSql" value="false" />
+			</bean>
+		</property>
+	</bean> -->
+
+    <bean id="transactionManager" class="org.springframework.orm.jpa.JpaTransactionManager">
+        <property name="entityManagerFactory" ref="entityManagerFactory"/>
+    </bean>
+    
+    <tx:annotation-driven transaction-manager="transactionManager"/>
+
+    <!-- Spring Data -->
+	<jpa:repositories base-package="com.zyl.**.model" entity-manager-factory-ref="entityManagerFactory" transaction-manager-ref="transactionManager"/>
+	
+	<import resource="classpath:spring/rabbitmq-context.xml"/>
+	<!-- <import resource="classpath:spring/dubbo-context.xml"/> -->
+	<import resource="classpath:spring/batch-context.xml"/>
+
+</beans>
